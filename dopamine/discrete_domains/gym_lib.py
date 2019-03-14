@@ -29,7 +29,7 @@ import itertools
 import math
 
 
-
+import gym_obstacle_tower
 import gym
 import numpy as np
 import tensorflow as tf
@@ -41,12 +41,18 @@ CARTPOLE_MIN_VALS = np.array([-2.4, -5., -math.pi/12., -math.pi*2.])
 CARTPOLE_MAX_VALS = np.array([2.4, 5., math.pi/12., math.pi*2.])
 ACROBOT_MIN_VALS = np.array([-1., -1., -1., -1., -5., -5.])
 ACROBOT_MAX_VALS = np.array([1., 1., 1., 1., 5., 5.])
+OSTACLE_TOWER_MIN_VALS = np.zeros(shape=(84, 84))
+OSTACLE_TOWER_MAX_VALS = np.ones(shape=(84, 84))
+
 gin.constant('gym_lib.CARTPOLE_OBSERVATION_SHAPE', (4, 1))
 gin.constant('gym_lib.CARTPOLE_OBSERVATION_DTYPE', tf.float32)
 gin.constant('gym_lib.CARTPOLE_STACK_SIZE', 1)
 gin.constant('gym_lib.ACROBOT_OBSERVATION_SHAPE', (6, 1))
 gin.constant('gym_lib.ACROBOT_OBSERVATION_DTYPE', tf.float32)
 gin.constant('gym_lib.ACROBOT_STACK_SIZE', 1)
+gin.constant('gym_lib.OBSTACLE_TOWER_OBSERVATION_SHAPE', (84, 84))
+gin.constant('gym_lib.OBSTACLE_TOWER_OBSERVATION_DTYPE', tf.float32)
+gin.constant('gym_lib.OBSTACLE_TOWER_STACK_SIZE', 4)
 
 slim = tf.contrib.slim
 
@@ -70,6 +76,27 @@ def create_gym_environment(environment_name=None, version='v0'):
   # Wrap the returned environment in a class which conforms to the API expected
   # by Dopamine.
   env = GymPreprocessing(env)
+  return env
+
+@gin.configurable
+def create_obstacle_tower_environment(environment_name=None, version='v0'):
+  """Wraps a Gym environment with some basic preprocessing.
+
+  Args:
+    environment_name: str, the name of the environment to run.
+    version: str, version of the environment to run.
+
+  Returns:
+    A Gym environment with some standard preprocessing.
+  """
+  assert environment_name is not None
+  full_game_name = '{}-{}'.format(environment_name, version)
+  env = gym.make(full_game_name)
+  env.init(discrete=True)
+  env.set_preprocessing(size=(84, 84))
+  # Wrap the returned environment in a class which conforms to the API expected
+  # by Dopamine.
+  # env = ObstacleTowerPreprocessing(env)
   return env
 
 
@@ -239,6 +266,43 @@ def cartpole_rainbow_network(num_actions, num_atoms, support, network_type,
   q_values = tf.reduce_sum(support * probabilities, axis=2)
   return network_type(q_values, logits, probabilities)
 
+@gin.configurable
+def obstacle_tower_rainbow_network(num_actions, num_atoms, support, network_type, state):
+  """The convolutional network used to compute agent's Q-value distributions.
+
+  Args:
+    num_actions: int, number of actions.
+    num_atoms: int, the number of buckets of the value function distribution.
+    support: tf.linspace, the support of the Q-value distribution.
+    network_type: namedtuple, collection of expected values to return.
+    state: `tf.Tensor`, contains the agent's current state.
+
+  Returns:
+    net: _network_type object containing the tensors output by the network.
+  """
+  weights_initializer = slim.variance_scaling_initializer(
+      factor=1.0 / np.sqrt(3.0), mode='FAN_IN', uniform=True)
+
+  net = tf.cast(state, tf.float32)
+  net = slim.conv2d(
+      net, 32, [8, 8], stride=4, weights_initializer=weights_initializer)
+  net = slim.conv2d(
+      net, 64, [4, 4], stride=2, weights_initializer=weights_initializer)
+  net = slim.conv2d(
+      net, 64, [3, 3], stride=1, weights_initializer=weights_initializer)
+  net = slim.flatten(net)
+  net = slim.fully_connected(
+      net, 512, weights_initializer=weights_initializer)
+  net = slim.fully_connected(
+      net,
+      num_actions * num_atoms,
+      activation_fn=None,
+      weights_initializer=weights_initializer)
+
+  logits = tf.reshape(net, [-1, num_actions, num_atoms])
+  probabilities = tf.contrib.layers.softmax(logits)
+  q_values = tf.reduce_sum(support * probabilities, axis=2)
+  return network_type(q_values, logits, probabilities)
 
 @gin.configurable
 def acrobot_dqn_network(num_actions, network_type, state):
@@ -304,6 +368,38 @@ def acrobot_rainbow_network(num_actions, num_atoms, support, network_type,
 
 @gin.configurable
 class GymPreprocessing(object):
+  """A Wrapper class around Gym environments."""
+
+  def __init__(self, environment):
+    self.environment = environment
+    self.game_over = False
+
+  @property
+  def observation_space(self):
+    return self.environment.observation_space
+
+  @property
+  def action_space(self):
+    return self.environment.action_space
+
+  @property
+  def reward_range(self):
+    return self.environment.reward_range
+
+  @property
+  def metadata(self):
+    return self.environment.metadata
+
+  def reset(self):
+    return self.environment.reset()
+
+  def step(self, action):
+    observation, reward, game_over, info = self.environment.step(action)
+    self.game_over = game_over
+    return observation, reward, game_over, info
+
+@gin.configurable
+class ObstacleTowerPreprocessing(object):
   """A Wrapper class around Gym environments."""
 
   def __init__(self, environment):

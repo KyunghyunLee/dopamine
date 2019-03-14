@@ -1,5 +1,9 @@
+ObstacleTower/
 .idea/
 __pycache__/
 *.swp
 *.egg-info/
 *.*checkpoints/
+checkpoints/
+UnitySDK.log
+
