@@ -144,7 +144,9 @@ class Runner(object):
                num_iterations=200,
                training_steps=250000,
                evaluation_steps=125000,
-               max_steps_per_episode=27000):
+               max_steps_per_episode=27000,
+               seed=None,
+               render=0):
     """Initialize the Runner object in charge of running a full experiment.
 
     Args:
@@ -172,6 +174,9 @@ class Runner(object):
       Checkpointer object.
     """
     assert base_dir is not None
+    self._seed = seed
+    self._render = render
+    self._render_counter = 0
     self._logging_file_prefix = logging_file_prefix
     self._log_every_n = log_every_n
     self._num_iterations = num_iterations
@@ -244,6 +249,7 @@ class Runner(object):
     Returns:
       action: int, the initial action chosen by the agent.
     """
+    self._environment.seed(self._seed)
     initial_observation = self._environment.reset()
     return self._agent.begin_episode(initial_observation)
 
@@ -293,6 +299,10 @@ class Runner(object):
       if (self._environment.game_over or
           step_number == self._max_steps_per_episode):
         # Stop the run loop once we reach the true end of episode.
+        if self._agent.eval_mode and self._render != 0:
+          self._render_counter += 1
+          if self._render_counter >= self._render:
+            self._render_counter = 0
         break
       elif is_terminal:
         # If we lose a life but the episode is not over, signal an artificial
@@ -301,6 +311,10 @@ class Runner(object):
         action = self._agent.begin_episode(observation)
       else:
         action = self._agent.step(reward, observation)
+      if self._agent.eval_mode and self._render != 0:
+        if self._render_counter >= self._render - 1:
+          self._environment.set_timesleep(0)
+          self._environment.render()
 
     self._end_episode(reward)
 

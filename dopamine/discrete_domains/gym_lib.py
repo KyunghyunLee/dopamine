@@ -79,7 +79,7 @@ def create_gym_environment(environment_name=None, version='v0'):
   return env
 
 @gin.configurable
-def create_obstacle_tower_environment(environment_name=None, version='v0'):
+def create_obstacle_tower_environment(environment_name=None, version='v0', seed=None):
   """Wraps a Gym environment with some basic preprocessing.
 
   Args:
@@ -94,6 +94,7 @@ def create_obstacle_tower_environment(environment_name=None, version='v0'):
   env = gym.make(full_game_name)
   env.init(discrete=True)
   env.set_preprocessing(size=(84, 84))
+  env.seed(seed)
   # Wrap the returned environment in a class which conforms to the API expected
   # by Dopamine.
   # env = ObstacleTowerPreprocessing(env)
@@ -292,7 +293,7 @@ def obstacle_tower_rainbow_network(num_actions, num_atoms, support, network_type
       net, 64, [3, 3], stride=1, weights_initializer=weights_initializer)
   net = slim.flatten(net)
   net = slim.fully_connected(
-      net, 512, weights_initializer=weights_initializer)
+      net, 256, weights_initializer=weights_initializer)
   net = slim.fully_connected(
       net,
       num_actions * num_atoms,
